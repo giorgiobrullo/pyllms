@@ -34,9 +34,9 @@ class OpenAIProvider(BaseProvider):
         "o3": {"prompt": 20.0, "completion": 80.0, "token_limit": 200000, "is_chat": True, "output_limit": 100000, "use_max_completion_tokens": True},
         "o3-pro": {"prompt": 200.0, "completion": 800.0, "token_limit": 200000, "is_chat": True, "output_limit": 100000, "use_max_completion_tokens": True, "use_responses_api": True},
         "o4-mini": {"prompt": 0.8, "completion": 3.2, "token_limit": 128000, "is_chat": True, "output_limit": 4_096, "use_max_completion_tokens": True},
-        "gpt-5": {"prompt": 1.25, "completion": 10.0, "token_limit": 256000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True},
-        "gpt-5-mini": {"prompt": 0.25, "completion": 2.0, "token_limit": 256000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True},
-        "gpt-5-nano": {"prompt": 0.05, "completion": 0.40, "token_limit": 256000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True},
+        "gpt-5": {"prompt": 1.25, "completion": 10.0, "token_limit": 256000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True, "use_responses_api": True},
+        "gpt-5-mini": {"prompt": 0.25, "completion": 2.0, "token_limit": 256000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True, "use_responses_api": True},
+        "gpt-5-nano": {"prompt": 0.05, "completion": 0.40, "token_limit": 256000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True, "use_responses_api": True},
     }
 
     def __init__(
@@ -101,6 +101,7 @@ class OpenAIProvider(BaseProvider):
         max_tokens: int = 300,
         stream: bool = False,
         reasoning_effort: Optional[str] = None,
+        verbosity: Optional[str] = None,
         **kwargs,
     ) -> Dict:
         if self.is_chat_model:
@@ -120,6 +121,7 @@ class OpenAIProvider(BaseProvider):
                 "messages": messages,
                 "stream": stream,
                 **({'reasoning_effort': reasoning_effort} if reasoning_effort else {}),
+                **({'verbosity': verbosity} if verbosity else {}),
                 **kwargs,
             }
 
@@ -157,6 +159,8 @@ class OpenAIProvider(BaseProvider):
         system_message: Optional[List[dict]] = None,
         temperature: float = 0,
         max_tokens: int = 300,
+        reasoning_effort: Optional[str] = None,
+        verbosity: Optional[str] = None,
         **kwargs,
     ) -> Result:
         """
@@ -172,6 +176,8 @@ class OpenAIProvider(BaseProvider):
             system_message=system_message,
             temperature=temperature,
             max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            verbosity=verbosity,
             **kwargs,
         )
 
@@ -183,6 +189,11 @@ class OpenAIProvider(BaseProvider):
                 reasoning = {}
                 if "reasoning_effort" in model_inputs:
                     reasoning["effort"] = model_inputs.pop("reasoning_effort")
+                
+                # Handle verbosity parameter
+                text_params = {}
+                if "verbosity" in model_inputs:
+                    text_params["verbosity"] = model_inputs.pop("verbosity")
                 
                 # Prepare parameters for Responses API
                 responses_params = {
@@ -199,12 +210,16 @@ class OpenAIProvider(BaseProvider):
                 
                 # Add any other supported parameters
                 for key, value in model_inputs.items():
-                    if key not in ["messages", "max_completion_tokens", "max_tokens", "temperature", "reasoning_effort"]:
+                    if key not in ["messages", "max_completion_tokens", "max_tokens", "temperature", "reasoning_effort", "verbosity"]:
                         responses_params[key] = value
                 
                 # Add reasoning if present
                 if reasoning:
                     responses_params["reasoning"] = reasoning
+                
+                # Add text parameters if present
+                if text_params:
+                    responses_params["text"] = text_params
                 
                 response = self.client.responses.create(**responses_params)
             elif self.is_chat_model:
@@ -272,6 +287,8 @@ class OpenAIProvider(BaseProvider):
         system_message: Optional[List[dict]] = None,
         temperature: float = 0,
         max_tokens: int = 300,
+        reasoning_effort: Optional[str] = None,
+        verbosity: Optional[str] = None,
         **kwargs,
     ) -> Result:
         """
@@ -286,6 +303,8 @@ class OpenAIProvider(BaseProvider):
             system_message=system_message,
             temperature=temperature,
             max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            verbosity=verbosity,
             **kwargs,
         )
 
@@ -297,6 +316,11 @@ class OpenAIProvider(BaseProvider):
                 reasoning = {}
                 if "reasoning_effort" in model_inputs:
                     reasoning["effort"] = model_inputs.pop("reasoning_effort")
+                
+                # Handle verbosity parameter
+                text_params = {}
+                if "verbosity" in model_inputs:
+                    text_params["verbosity"] = model_inputs.pop("verbosity")
                 
                 # Prepare parameters for Responses API
                 responses_params = {
@@ -313,12 +337,16 @@ class OpenAIProvider(BaseProvider):
                 
                 # Add any other supported parameters
                 for key, value in model_inputs.items():
-                    if key not in ["messages", "max_completion_tokens", "max_tokens", "temperature", "reasoning_effort"]:
+                    if key not in ["messages", "max_completion_tokens", "max_tokens", "temperature", "reasoning_effort", "verbosity"]:
                         responses_params[key] = value
                 
                 # Add reasoning if present
                 if reasoning:
                     responses_params["reasoning"] = reasoning
+                
+                # Add text parameters if present
+                if text_params:
+                    responses_params["text"] = text_params
                 
                 response = await self.async_client.responses.create(**responses_params)
                 # Find the output_text in the response
@@ -372,6 +400,8 @@ class OpenAIProvider(BaseProvider):
         system_message: Union[str, List[dict], None] = None,
         temperature: float = 0,
         max_tokens: int = 300,
+        reasoning_effort: Optional[str] = None,
+        verbosity: Optional[str] = None,
         **kwargs,
     ) -> StreamResult:
         """
@@ -387,6 +417,8 @@ class OpenAIProvider(BaseProvider):
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            reasoning_effort=reasoning_effort,
+            verbosity=verbosity,
             **kwargs,
         )
 
@@ -426,6 +458,8 @@ class OpenAIProvider(BaseProvider):
             system_message: Union[str, List[dict], None] = None,
             temperature: float = 0,
             max_tokens: int = 300,
+            reasoning_effort: Optional[str] = None,
+            verbosity: Optional[str] = None,
             **kwargs,
     ) -> AsyncStreamResult:
         """
@@ -441,6 +475,8 @@ class OpenAIProvider(BaseProvider):
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            reasoning_effort=reasoning_effort,
+            verbosity=verbosity,
             **kwargs,
         )
 
