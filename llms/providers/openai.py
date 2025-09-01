@@ -69,7 +69,7 @@ class OpenAIProvider(BaseProvider):
     def uses_responses_api(self) -> bool:
         return self.MODEL_INFO[self.model].get('use_responses_api', False)
 
-    def _format_content_with_images(self, prompt: Union[str, dict, list], images: Optional[Union[str, list]] = None) -> Union[str, list]:
+    def _format_content_with_images(self, prompt: Union[str, dict, list], images: Optional[Union[str, list]] = None, for_responses_api: bool = False) -> Union[str, list]:
         """Format content with images for OpenAI vision API."""
         # Already formatted content - pass through
         if isinstance(prompt, (dict, list)):
@@ -80,27 +80,51 @@ class OpenAIProvider(BaseProvider):
         if not images_list:
             return prompt
             
-        # Build OpenAI vision format: text + image_url objects
-        content = [{"type": "text", "text": prompt}]
-        
-        for image in images_list:
-            if image.startswith(('http://', 'https://')):
-                # OpenAI accepts URLs directly
-                image_obj = {"type": "image_url", "image_url": {"url": image}}
-            elif os.path.exists(image):
-                # Local file - encode to base64 data URL
-                base64_data, media_type = encode_image_to_base64(image)
-                url = f"data:{media_type};base64,{base64_data}"
-                image_obj = {"type": "image_url", "image_url": {"url": url}}
-            elif image.startswith('data:image/'):
-                # Already a data URL
-                image_obj = {"type": "image_url", "image_url": {"url": image}}
-            else:
-                # Raw base64 - wrap in data URL
-                url = f"data:image/jpeg;base64,{image}"
-                image_obj = {"type": "image_url", "image_url": {"url": url}}
+        # Different formats for Responses API (GPT-5) vs Chat API
+        if for_responses_api:
+            # GPT-5 Responses API format: input_text + input_image
+            content = [{"type": "input_text", "text": prompt}]
             
-            content.append(image_obj)
+            for image in images_list:
+                if image.startswith(('http://', 'https://')):
+                    # Responses API wants just the URL string
+                    image_obj = {"type": "input_image", "image_url": image}
+                elif os.path.exists(image):
+                    # Local file - encode to base64 data URL
+                    base64_data, media_type = encode_image_to_base64(image)
+                    url = f"data:{media_type};base64,{base64_data}"
+                    image_obj = {"type": "input_image", "image_url": url}
+                elif image.startswith('data:image/'):
+                    # Already a data URL
+                    image_obj = {"type": "input_image", "image_url": image}
+                else:
+                    # Raw base64 - wrap in data URL
+                    url = f"data:image/jpeg;base64,{image}"
+                    image_obj = {"type": "input_image", "image_url": url}
+                
+                content.append(image_obj)
+        else:
+            # Standard Chat API format: text + image_url objects
+            content = [{"type": "text", "text": prompt}]
+            
+            for image in images_list:
+                if image.startswith(('http://', 'https://')):
+                    # Chat API accepts URLs in object format
+                    image_obj = {"type": "image_url", "image_url": {"url": image}}
+                elif os.path.exists(image):
+                    # Local file - encode to base64 data URL
+                    base64_data, media_type = encode_image_to_base64(image)
+                    url = f"data:{media_type};base64,{base64_data}"
+                    image_obj = {"type": "image_url", "image_url": {"url": url}}
+                elif image.startswith('data:image/'):
+                    # Already a data URL
+                    image_obj = {"type": "image_url", "image_url": {"url": image}}
+                else:
+                    # Raw base64 - wrap in data URL
+                    url = f"data:image/jpeg;base64,{image}"
+                    image_obj = {"type": "image_url", "image_url": {"url": url}}
+                
+                content.append(image_obj)
                     
         return content
 
@@ -147,7 +171,8 @@ class OpenAIProvider(BaseProvider):
     ) -> Dict:
         if self.is_chat_model:
             # Format content with images if provided
-            content = self._format_content_with_images(prompt, images)
+            # Use different format for Responses API (GPT-5, etc.)
+            content = self._format_content_with_images(prompt, images, for_responses_api=self.uses_responses_api)
             messages = [{"role": "user", "content": content}]
 
             if history:
