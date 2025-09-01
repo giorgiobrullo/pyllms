@@ -33,6 +33,7 @@ setup(
         "ollama",
         "reka-api",
         "together",
+        "requests",
     ],
     extras_require={
         "local": ["einops", "accelerate"]

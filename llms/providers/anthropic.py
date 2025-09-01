@@ -1,11 +1,18 @@
 # llms/providers/anthropic.py
 
 from typing import AsyncGenerator, Dict, Generator, List, Optional, Union
+import os
 
 import anthropic
 
 from ..results.result import AsyncStreamResult, Result, StreamResult
 from .base_provider import BaseProvider
+from ..utils.image_utils import (
+    encode_image_to_base64,
+    download_and_encode_image,
+    normalize_images_input,
+    parse_base64_data_url
+)
 
 
 class AnthropicProvider(BaseProvider):
@@ -43,6 +50,51 @@ class AnthropicProvider(BaseProvider):
         if async_client_kwargs is None:
             async_client_kwargs = {}
         self.async_client = anthropic.AsyncAnthropic(api_key=api_key, **async_client_kwargs)
+
+    def _format_content_with_images(self, prompt: Union[str, dict, list], images: Optional[Union[str, list]] = None) -> Union[str, list]:
+        """Format content with images for Anthropic vision API."""
+        # Already formatted content - pass through
+        if isinstance(prompt, (dict, list)):
+            return prompt
+            
+        # No images - return plain text
+        images_list = normalize_images_input(images)
+        if not images_list:
+            return prompt
+            
+        # Build Anthropic vision format: image objects then text
+        # Anthropic prefers images before text for better performance
+        content = []
+        
+        for image in images_list:
+            if image.startswith(('http://', 'https://')):
+                # Anthropic requires downloading URLs and encoding
+                base64_data, media_type = download_and_encode_image(image)
+            elif os.path.exists(image):
+                # Local file - encode to base64
+                base64_data, media_type = encode_image_to_base64(image)
+            elif image.startswith('data:image/'):
+                # Parse data URL
+                base64_data, media_type = parse_base64_data_url(image)
+            else:
+                # Raw base64 string
+                base64_data = image
+                media_type = "image/jpeg"
+            
+            # Anthropic image format
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": base64_data
+                }
+            })
+        
+        # Add text after images
+        content.append({"type": "text", "text": prompt})
+                    
+        return content
 
     def count_tokens(self, content: str | Dict) -> int:
         """Count tokens using Anthropic's native token counting API."""
@@ -85,19 +137,23 @@ class AnthropicProvider(BaseProvider):
 
     def _prepare_message_inputs(
         self,
-        prompt: str,
+        prompt: Union[str, dict, list],
         history: Optional[List[dict]] = None,
         temperature: float = 0,
         max_tokens: int = 300,
         stop_sequences: Optional[List[str]] = None,
         ai_prompt: str = "",
         system_message: Union[str, None] = None,
+        images: Optional[Union[str, list]] = None,
         **kwargs,
     ) -> Dict:
         history = history or []
         system_message = system_message or ""
         max_tokens = kwargs.pop("max_tokens_to_sample", max_tokens)
-        messages = [*history, {"role": "user", "content": prompt}]
+        
+        # Format content with images if provided
+        content = self._format_content_with_images(prompt, images)
+        messages = [*history, {"role": "user", "content": content}]
         if ai_prompt:
             messages.append({"role": "assistant", "content": ai_prompt})
 
@@ -122,7 +178,7 @@ class AnthropicProvider(BaseProvider):
 
     def _prepare_model_inputs(
         self,
-        prompt: str,
+        prompt: Union[str, dict, list],
         history: Optional[List[dict]] = None,
         temperature: float = 0,
         max_tokens: int = 300,
@@ -130,6 +186,7 @@ class AnthropicProvider(BaseProvider):
         ai_prompt: str = "",
         system_message: Union[str, None] = None,
         stream: bool = False,
+        images: Optional[Union[str, list]] = None,
         **kwargs,
     ) -> Dict:
         return self._prepare_message_inputs(
@@ -140,26 +197,30 @@ class AnthropicProvider(BaseProvider):
             stop_sequences=stop_sequences,
             ai_prompt=ai_prompt,
             system_message=system_message,
+            images=images,
             stream=stream,
             **kwargs,
         )
 
     def complete(
         self,
-        prompt: str,
+        prompt: Union[str, dict, list],
         history: Optional[List[dict]] = None,
         temperature: float = 0,
         max_tokens: int = 300,
         stop_sequences: Optional[List[str]] = None,
         ai_prompt: str = "",
         system_message: Union[str, None] = None,
+        images: Optional[Union[str, list]] = None,
         **kwargs,
     ) -> Result:
         """
         Args:
+            prompt: Text prompt, or formatted content dict/list for vision models
             history: messages in OpenAI format,
               each dict must include role and content key.
             ai_prompt: prefix of AI response, for finer control on the output.
+            images: Optional image(s) to include - can be file paths, URLs, or base64 strings
         """
 
         model_inputs = self._prepare_model_inputs(
@@ -170,6 +231,7 @@ class AnthropicProvider(BaseProvider):
             stop_sequences=stop_sequences,
             ai_prompt=ai_prompt,
             system_message=system_message,
+            images=images,
             **kwargs,
         )
 
@@ -194,20 +256,23 @@ class AnthropicProvider(BaseProvider):
 
     async def acomplete(
         self,
-        prompt: str,
+        prompt: Union[str, dict, list],
         history: Optional[List[dict]] = None,
         temperature: float = 0,
         max_tokens: int = 300,
         stop_sequences: Optional[List[str]] = None,
         ai_prompt: str = "",
         system_message: Union[str, None] = None,
+        images: Optional[Union[str, list]] = None,
         **kwargs,
     ):
         """
         Args:
+            prompt: Text prompt, or formatted content dict/list for vision models
             history: messages in OpenAI format,
               each dict must include role and content key.
             ai_prompt: prefix of AI response, for finer control on the output.
+            images: Optional image(s) to include - can be file paths, URLs, or base64 strings
         """
 
         model_inputs = self._prepare_model_inputs(
@@ -218,6 +283,7 @@ class AnthropicProvider(BaseProvider):
             stop_sequences=stop_sequences,
             ai_prompt=ai_prompt,
             system_message=system_message,
+            images=images,
             **kwargs,
         )
 
@@ -238,20 +304,23 @@ class AnthropicProvider(BaseProvider):
 
     def complete_stream(
         self,
-        prompt: str,
+        prompt: Union[str, dict, list],
         history: Optional[List[dict]] = None,
         temperature: float = 0,
         max_tokens: int = 300,
         stop_sequences: Optional[List[str]] = None,
         ai_prompt: str = "",
         system_message: Union[str, None] = None,
+        images: Optional[Union[str, list]] = None,
         **kwargs,
     ) -> StreamResult:
         """
         Args:
+            prompt: Text prompt, or formatted content dict/list for vision models
             history: messages in OpenAI format,
               each dict must include role and content key.
             ai_prompt: prefix of AI response, for finer control on the output.
+            images: Optional image(s) to include - can be file paths, URLs, or base64 strings
         """
 
         model_inputs = self._prepare_model_inputs(
@@ -263,6 +332,7 @@ class AnthropicProvider(BaseProvider):
             ai_prompt=ai_prompt,
             system_message=system_message,
             stream=True,
+            images=images,
             **kwargs,
         )
         with self.track_latency():

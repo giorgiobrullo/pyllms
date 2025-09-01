@@ -1,11 +1,16 @@
 from typing import AsyncGenerator, Dict, Generator, List, Optional, Union
 import tiktoken
+import os
 
 from openai import AsyncOpenAI, OpenAI
 import json
 
 from ..results.result import AsyncStreamResult, Result, StreamResult
 from .base_provider import BaseProvider
+from ..utils.image_utils import (
+    encode_image_to_base64,
+    normalize_images_input,
+)
 
 
 class OpenAIProvider(BaseProvider):
@@ -64,6 +69,41 @@ class OpenAIProvider(BaseProvider):
     def uses_responses_api(self) -> bool:
         return self.MODEL_INFO[self.model].get('use_responses_api', False)
 
+    def _format_content_with_images(self, prompt: Union[str, dict, list], images: Optional[Union[str, list]] = None) -> Union[str, list]:
+        """Format content with images for OpenAI vision API."""
+        # Already formatted content - pass through
+        if isinstance(prompt, (dict, list)):
+            return prompt
+            
+        # No images - return plain text
+        images_list = normalize_images_input(images)
+        if not images_list:
+            return prompt
+            
+        # Build OpenAI vision format: text + image_url objects
+        content = [{"type": "text", "text": prompt}]
+        
+        for image in images_list:
+            if image.startswith(('http://', 'https://')):
+                # OpenAI accepts URLs directly
+                image_obj = {"type": "image_url", "image_url": {"url": image}}
+            elif os.path.exists(image):
+                # Local file - encode to base64 data URL
+                base64_data, media_type = encode_image_to_base64(image)
+                url = f"data:{media_type};base64,{base64_data}"
+                image_obj = {"type": "image_url", "image_url": {"url": url}}
+            elif image.startswith('data:image/'):
+                # Already a data URL
+                image_obj = {"type": "image_url", "image_url": {"url": image}}
+            else:
+                # Raw base64 - wrap in data URL
+                url = f"data:image/jpeg;base64,{image}"
+                image_obj = {"type": "image_url", "image_url": {"url": url}}
+            
+            content.append(image_obj)
+                    
+        return content
+
     def count_tokens(self, content: Union[str, List[dict]]) -> int:
         try:
             enc = tiktoken.encoding_for_model(self.model)
@@ -94,7 +134,7 @@ class OpenAIProvider(BaseProvider):
 
     def _prepare_model_inputs(
         self,
-        prompt: str,
+        prompt: Union[str, dict, list],
         history: Optional[List[dict]] = None,
         system_message: Union[str, List[dict], None] = None,
         temperature: float = 0,
@@ -102,10 +142,13 @@ class OpenAIProvider(BaseProvider):
         stream: bool = False,
         reasoning_effort: Optional[str] = None,
         verbosity: Optional[str] = None,
+        images: Optional[Union[str, list]] = None,
         **kwargs,
     ) -> Dict:
         if self.is_chat_model:
-            messages = [{"role": "user", "content": prompt}]
+            # Format content with images if provided
+            content = self._format_content_with_images(prompt, images)
+            messages = [{"role": "user", "content": content}]
 
             if history:
                 messages = [*history, *messages]
@@ -154,20 +197,23 @@ class OpenAIProvider(BaseProvider):
 
     def complete(
         self,
-        prompt: str,
+        prompt: Union[str, dict, list],
         history: Optional[List[dict]] = None,
         system_message: Optional[List[dict]] = None,
         temperature: float = 0,
         max_tokens: int = 300,
         reasoning_effort: Optional[str] = None,
         verbosity: Optional[str] = None,
+        images: Optional[Union[str, list]] = None,
         **kwargs,
     ) -> Result:
         """
         Args:
+            prompt: Text prompt, or formatted content dict/list for vision models
             history: messages in OpenAI format, each dict must include role and content key.
             system_message: system messages in OpenAI format, must have role and content key.
               It can has name key to include few-shots examples.
+            images: Optional image(s) to include - can be file paths, URLs, or base64 strings
         """
 
         model_inputs = self._prepare_model_inputs(
@@ -178,6 +224,7 @@ class OpenAIProvider(BaseProvider):
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
             verbosity=verbosity,
+            images=images,
             **kwargs,
         )
 
@@ -282,20 +329,23 @@ class OpenAIProvider(BaseProvider):
 
     async def acomplete(
         self,
-        prompt: str,
+        prompt: Union[str, dict, list],
         history: Optional[List[dict]] = None,
         system_message: Optional[List[dict]] = None,
         temperature: float = 0,
         max_tokens: int = 300,
         reasoning_effort: Optional[str] = None,
         verbosity: Optional[str] = None,
+        images: Optional[Union[str, list]] = None,
         **kwargs,
     ) -> Result:
         """
         Args:
+            prompt: Text prompt, or formatted content dict/list for vision models
             history: messages in OpenAI format, each dict must include role and content key.
             system_message: system messages in OpenAI format, must have role and content key.
               It can has name key to include few-shots examples.
+            images: Optional image(s) to include - can be file paths, URLs, or base64 strings
         """
         model_inputs = self._prepare_model_inputs(
             prompt=prompt,
@@ -305,6 +355,7 @@ class OpenAIProvider(BaseProvider):
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
             verbosity=verbosity,
+            images=images,
             **kwargs,
         )
 
@@ -395,20 +446,23 @@ class OpenAIProvider(BaseProvider):
 
     def complete_stream(
         self,
-        prompt: str,
+        prompt: Union[str, dict, list],
         history: Optional[List[dict]] = None,
         system_message: Union[str, List[dict], None] = None,
         temperature: float = 0,
         max_tokens: int = 300,
         reasoning_effort: Optional[str] = None,
         verbosity: Optional[str] = None,
+        images: Optional[Union[str, list]] = None,
         **kwargs,
     ) -> StreamResult:
         """
         Args:
+            prompt: Text prompt, or formatted content dict/list for vision models
             history: messages in OpenAI format, each dict must include role and content key.
             system_message: system messages in OpenAI format, must have role and content key.
               It can has name key to include few-shots examples.
+            images: Optional image(s) to include - can be file paths, URLs, or base64 strings
         """
         model_inputs = self._prepare_model_inputs(
             prompt=prompt,
@@ -419,6 +473,7 @@ class OpenAIProvider(BaseProvider):
             stream=True,
             reasoning_effort=reasoning_effort,
             verbosity=verbosity,
+            images=images,
             **kwargs,
         )
 
@@ -453,20 +508,23 @@ class OpenAIProvider(BaseProvider):
 
     async def acomplete_stream(
             self,
-            prompt: str,
+            prompt: Union[str, dict, list],
             history: Optional[List[dict]] = None,
             system_message: Union[str, List[dict], None] = None,
             temperature: float = 0,
             max_tokens: int = 300,
             reasoning_effort: Optional[str] = None,
             verbosity: Optional[str] = None,
+            images: Optional[Union[str, list]] = None,
             **kwargs,
     ) -> AsyncStreamResult:
         """
         Args:
+            prompt: Text prompt, or formatted content dict/list for vision models
             history: messages in OpenAI format, each dict must include role and content key.
             system_message: system messages in OpenAI format, must have role and content key.
               It can has name key to include few-shots examples.
+            images: Optional image(s) to include - can be file paths, URLs, or base64 strings
         """
         model_inputs = self._prepare_model_inputs(
             prompt=prompt,
@@ -477,6 +535,7 @@ class OpenAIProvider(BaseProvider):
             stream=True,
             reasoning_effort=reasoning_effort,
             verbosity=verbosity,
+            images=images,
             **kwargs,
         )
 
