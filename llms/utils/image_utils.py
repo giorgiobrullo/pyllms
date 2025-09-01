@@ -35,7 +35,11 @@ def download_and_encode_image(url: str) -> tuple[str, str]:
     Returns:
         Tuple of (base64_string, media_type)
     """
-    response = requests.get(url)
+    # Use pyllms user agent
+    headers = {
+        'User-Agent': 'pyllms/1.0'
+    }
+    response = requests.get(url, headers=headers)
     response.raise_for_status()
     
     base64_image = base64.b64encode(response.content).decode('utf-8')
