@@ -1,4 +1,4 @@
-from typing import AsyncGenerator, Dict, Generator, List, Optional, Union
+from typing import AsyncGenerator, Dict, Generator, List, Optional, Union, Any
 import tiktoken
 import os
 
@@ -11,6 +11,14 @@ from ..utils.image_utils import (
     encode_image_to_base64,
     normalize_images_input,
 )
+try:
+    from ..utils.pydantic_utils import (
+        pydantic_to_json_schema,
+        is_pydantic_model,
+    )
+    PYDANTIC_AVAILABLE = True
+except ImportError:
+    PYDANTIC_AVAILABLE = False
 
 
 class OpenAIProvider(BaseProvider):
@@ -128,6 +136,18 @@ class OpenAIProvider(BaseProvider):
                     
         return content
 
+    def _process_response_format(self, response_format: Optional[Union[Dict, Any]]) -> Optional[Dict]:
+        """Process response_format, converting Pydantic models if necessary."""
+        if response_format is None:
+            return None
+
+        # If it's a Pydantic model, convert it to JSON schema
+        if PYDANTIC_AVAILABLE and is_pydantic_model(response_format):
+            return pydantic_to_json_schema(response_format)
+
+        # Otherwise, assume it's already a dict in the correct format
+        return response_format
+
     def count_tokens(self, content: Union[str, List[dict]]) -> int:
         try:
             enc = tiktoken.encoding_for_model(self.model)
@@ -167,6 +187,7 @@ class OpenAIProvider(BaseProvider):
         reasoning_effort: Optional[str] = None,
         verbosity: Optional[str] = None,
         images: Optional[Union[str, list]] = None,
+        response_format: Optional[Dict] = None,
         **kwargs,
     ) -> Dict:
         if self.is_chat_model:
@@ -190,6 +211,7 @@ class OpenAIProvider(BaseProvider):
                 "stream": stream,
                 **({'reasoning_effort': reasoning_effort} if reasoning_effort else {}),
                 **({'verbosity': verbosity} if verbosity else {}),
+                **({'response_format': self._process_response_format(response_format)} if response_format else {}),
                 **kwargs,
             }
 
@@ -230,6 +252,7 @@ class OpenAIProvider(BaseProvider):
         reasoning_effort: Optional[str] = None,
         verbosity: Optional[str] = None,
         images: Optional[Union[str, list]] = None,
+        response_format: Optional[Dict] = None,
         **kwargs,
     ) -> Result:
         """
@@ -250,6 +273,7 @@ class OpenAIProvider(BaseProvider):
             reasoning_effort=reasoning_effort,
             verbosity=verbosity,
             images=images,
+            response_format=response_format,
             **kwargs,
         )
 
@@ -262,7 +286,7 @@ class OpenAIProvider(BaseProvider):
                 if "reasoning_effort" in model_inputs:
                     reasoning["effort"] = model_inputs.pop("reasoning_effort")
                 
-                # Handle verbosity parameter
+                # Initialize text parameters dict for Responses API
                 text_params = {}
                 if "verbosity" in model_inputs:
                     text_params["verbosity"] = model_inputs.pop("verbosity")
@@ -280,16 +304,21 @@ class OpenAIProvider(BaseProvider):
                 if max_tokens is not None:
                     responses_params["max_output_tokens"] = max_tokens
                 
+                # Add response_format as text.format for Responses API
+                if "response_format" in model_inputs and model_inputs["response_format"]:
+                    # For Responses API, structured output uses text.format
+                    text_params["format"] = model_inputs["response_format"]
+                
                 # Add any other supported parameters
                 for key, value in model_inputs.items():
-                    if key not in ["messages", "max_completion_tokens", "max_tokens", "temperature", "reasoning_effort", "verbosity"]:
+                    if key not in ["messages", "max_completion_tokens", "max_tokens", "temperature", "reasoning_effort", "verbosity", "response_format"]:
                         responses_params[key] = value
                 
                 # Add reasoning if present
                 if reasoning:
                     responses_params["reasoning"] = reasoning
                 
-                # Add text parameters if present
+                # Add text parameters if present (includes format and/or verbosity)
                 if text_params:
                     responses_params["text"] = text_params
                 
@@ -362,6 +391,7 @@ class OpenAIProvider(BaseProvider):
         reasoning_effort: Optional[str] = None,
         verbosity: Optional[str] = None,
         images: Optional[Union[str, list]] = None,
+        response_format: Optional[Dict] = None,
         **kwargs,
     ) -> Result:
         """
@@ -381,6 +411,7 @@ class OpenAIProvider(BaseProvider):
             reasoning_effort=reasoning_effort,
             verbosity=verbosity,
             images=images,
+            response_format=response_format,
             **kwargs,
         )
 
@@ -393,7 +424,7 @@ class OpenAIProvider(BaseProvider):
                 if "reasoning_effort" in model_inputs:
                     reasoning["effort"] = model_inputs.pop("reasoning_effort")
                 
-                # Handle verbosity parameter
+                # Initialize text parameters dict for Responses API
                 text_params = {}
                 if "verbosity" in model_inputs:
                     text_params["verbosity"] = model_inputs.pop("verbosity")
@@ -411,16 +442,21 @@ class OpenAIProvider(BaseProvider):
                 if max_tokens is not None:
                     responses_params["max_output_tokens"] = max_tokens
                 
+                # Add response_format as text.format for Responses API
+                if "response_format" in model_inputs and model_inputs["response_format"]:
+                    # For Responses API, structured output uses text.format
+                    text_params["format"] = model_inputs["response_format"]
+                
                 # Add any other supported parameters
                 for key, value in model_inputs.items():
-                    if key not in ["messages", "max_completion_tokens", "max_tokens", "temperature", "reasoning_effort", "verbosity"]:
+                    if key not in ["messages", "max_completion_tokens", "max_tokens", "temperature", "reasoning_effort", "verbosity", "response_format"]:
                         responses_params[key] = value
                 
                 # Add reasoning if present
                 if reasoning:
                     responses_params["reasoning"] = reasoning
                 
-                # Add text parameters if present
+                # Add text parameters if present (includes format and/or verbosity)
                 if text_params:
                     responses_params["text"] = text_params
                 
@@ -479,6 +515,7 @@ class OpenAIProvider(BaseProvider):
         reasoning_effort: Optional[str] = None,
         verbosity: Optional[str] = None,
         images: Optional[Union[str, list]] = None,
+        response_format: Optional[Dict] = None,
         **kwargs,
     ) -> StreamResult:
         """
@@ -499,6 +536,7 @@ class OpenAIProvider(BaseProvider):
             reasoning_effort=reasoning_effort,
             verbosity=verbosity,
             images=images,
+            response_format=response_format,
             **kwargs,
         )
 
@@ -541,6 +579,7 @@ class OpenAIProvider(BaseProvider):
             reasoning_effort: Optional[str] = None,
             verbosity: Optional[str] = None,
             images: Optional[Union[str, list]] = None,
+            response_format: Optional[Dict] = None,
             **kwargs,
     ) -> AsyncStreamResult:
         """
@@ -561,6 +600,7 @@ class OpenAIProvider(BaseProvider):
             reasoning_effort=reasoning_effort,
             verbosity=verbosity,
             images=images,
+            response_format=response_format,
             **kwargs,
         )
 
