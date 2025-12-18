@@ -49,7 +49,6 @@ class OpenAIProvider(BaseProvider):
         "o4-mini": {"prompt": 0.8, "completion": 3.2, "token_limit": 128000, "is_chat": True, "output_limit": 4_096, "use_max_completion_tokens": True},
         "gpt-5": {"prompt": 1.25, "completion": 10.0, "token_limit": 256000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True, "use_responses_api": True},
         "gpt-5.1": {"prompt": 1.25, "completion": 10.0, "token_limit": 272000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True, "use_responses_api": True},
-        "gpt-5.1-instant": {"prompt": 1.25, "completion": 10.0, "token_limit": 272000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True, "use_responses_api": True},
         "gpt-5-mini": {"prompt": 0.25, "completion": 2.0, "token_limit": 256000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True, "use_responses_api": True},
         "gpt-5-nano": {"prompt": 0.05, "completion": 0.40, "token_limit": 256000, "is_chat": True, "output_limit": 128000, "use_max_completion_tokens": True, "use_responses_api": True},
     }
